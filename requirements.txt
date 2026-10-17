@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+langgraph==1.2.9
+langchain-core
+langchain-mistralai
+langchain-tavily
+langgraph-checkpoint-sqlite

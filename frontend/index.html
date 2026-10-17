@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="Logo.png">
+    <title>Licht</title>
+    <script src="test.js" defer></script>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <section id="ReportSection">
+        <div id="ReportDivision">
+            <div id="searchCard">
+                <div id="logoCard">
+                    <img src="Logo.png" alt="Licht logo" id="logo">
+                    <div id="brandText">
+                    <h1>Licht</h1>
+                    </div>
+                </div>
+                <div id="inside">
+                    <div id="input">
+                    <input type="text" id="topic" placeholder="Enter the Topic here...">
+                    <button id="btnReport">
+                        <img src="https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f2/Send_icon.svg/500px-Send_icon.svg.png?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=thumbnail" alt="Send" id="img">
+                    </button>
+                </div>
+            </div>
+        </div>
+
+            <div id="status" style="display:none;">
+                <span class="spinner"></span><span id="status-text"></span>
+            </div>
+            <div id="para_Report" class="report"></div>
+        </div>
+    </section>
+</body>
+</html>

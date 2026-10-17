@@ -1,0 +1,307 @@
+/* This below style is only for the "getReport" */
+
+#status {
+    align-items: center;
+    gap: .75rem;
+    margin: 1rem 0;
+    font-family: sans-serif;
+    color: white;
+}
+.spinner {
+    display: inline-block;
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border: 3px solid #ddd;
+    border-top-color: #1a3d6d;
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* The below changes are done by me. */
+
+body {
+    margin: 0;
+    background-color: #153A4B;
+}
+
+#searchCard {
+    width: 1300px;
+    max-width: 90vw;
+    box-sizing: border-box;
+    margin: 0 auto 30px;
+    padding: 40px 60px 50px;
+    border-radius: 40px;
+    background-color: white;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    transition: padding .6s ease, margin .6s ease;
+}
+
+#logoCard {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 30px;
+    transition: margin .6s ease, gap .6s ease;
+}
+
+#logo {
+    display: block;
+    height: 130px;
+    width: 130px;
+    object-fit: contain;
+    transition: height .6s ease, width .6s ease;
+}
+
+#brandText h1 {
+    margin: 0;
+    font-family: "Montserrat", sans-serif;
+    font-weight: 800;
+    font-size: 64px;
+    letter-spacing: 2px;
+    line-height: 1;
+    color: #153A4B;
+    transition: font-size .6s ease;
+}
+
+#brandText p {
+    margin: 6px 0 0;
+    max-height: 30px;
+    overflow: hidden;
+    font-family: "Montserrat", sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 1px;
+    color: #153A4B;
+    transition: opacity .3s ease, max-height .6s ease, margin .6s ease;
+}
+
+#inside {
+    position: relative;             /* needed for the ::before image layer */
+    width: 100%;
+    height: 450px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: height .6s ease;
+}
+
+/* the illustration lives here so it can fade out */
+#inside::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: url("Background.png") center / contain no-repeat;
+    opacity: 1;
+    transition: opacity .5s ease;
+}
+
+#input {
+    position: relative;             /* sits above the image layer */
+    z-index: 1;
+    width: 100%;
+    max-width: 900px;
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* ---------- after a topic is submitted ---------- */
+
+#ReportSection.has-report #ReportDivision {
+    margin: 0 auto;                 /* start at the top instead of centered */
+}
+
+#ReportSection.has-report #searchCard {
+    flex-direction: row;            /* logo left, input right */
+    justify-content: space-between;
+    align-items: center;
+    gap: 30px;
+    padding: 15px 30px;
+    margin-bottom: 20px;
+}
+
+#ReportSection.has-report #logoCard {
+    margin-bottom: 0;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+#ReportSection.has-report #logo {
+    height: 56px;
+    width: 56px;
+}
+
+#ReportSection.has-report #brandText h1 {
+    font-size: 28px;
+    letter-spacing: 1px;
+}
+
+#ReportSection.has-report #brandText p {
+    opacity: 0;
+    max-height: 0;
+    margin: 0;
+}
+
+#ReportSection.has-report #inside {
+    flex: 1;
+    width: auto;
+    height: 70px;
+}
+
+#ReportSection.has-report #inside::before {
+    opacity: 0;                     /* image fades out, card stays white */
+}
+
+#ReportSection.has-report #input {
+    max-width: none;
+}
+
+#ReportSection {
+    min-height: 100vh;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    padding: 40px 0;
+}
+
+#ReportDivision {
+    margin: auto;
+}
+
+#topic {
+    flex: 1;
+    height: 56px;
+    border-radius: 28px;
+    padding: 0 25px;
+    margin-right: 10px;
+    border: 1px solid #ccc;
+    font-size: 16px;
+    background: white;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+}
+
+#btnReport {
+    border-radius: 50%;
+    height: 40px;
+    width: 40px;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+#img {
+    height: 21px;
+    width: 21px;
+    border-radius: 50%;
+}
+
+#status {
+    display: flex;
+    justify-content: center;
+}
+
+#para_Report {
+    width: 1300px;
+    max-width: 90vw;
+    margin: 0 auto;
+    box-sizing: border-box;
+    overflow-wrap: break-word;
+}
+
+/* white box only when the report has content */
+#para_Report:not(:empty) {
+    background-color: white;
+    padding: 50px 100px;
+    border-radius: 40px;
+}
+
+@media (max-width: 700px) {
+
+    /* ---------- header card ---------- */
+    #searchCard {
+        width: 94vw;
+        max-width: 94vw;
+        padding: 30px 16px 36px;
+    }
+
+    #logo {
+        height: 80px;
+        width: 80px;
+    }
+
+    #brandText h1 {
+        font-size: 42px;
+    }
+
+    /* image area follows its width, so the picture fits with no empty space */
+    #inside {
+        height: auto;
+        aspect-ratio: 1 / 1;
+        width: 100%;
+    }
+
+    #input {
+        max-width: 100%;
+    }
+
+    #topic {
+        height: 48px;
+        font-size: 15px;
+        padding: 0 18px;
+        min-width: 0;               /* lets the input shrink instead of overflowing */
+    }
+
+    /* ---------- after submitting ---------- */
+    #ReportSection.has-report #searchCard {
+        flex-direction: column;
+        padding: 15px 16px;
+    }
+
+    #ReportSection.has-report #inside {
+        width: 100%;
+        height: 70px;
+        aspect-ratio: auto;
+    }
+
+    /* ---------- report ---------- */
+    #ReportSection {
+        padding: 20px 0;
+    }
+
+    #para_Report {
+        width: 94vw;
+        max-width: 94vw;
+    }
+
+    #para_Report:not(:empty) {
+        padding: 24px 18px;
+        border-radius: 24px;
+        font-size: 16px;
+        line-height: 1.6;
+    }
+
+    #para_Report h1 { font-size: 26px; line-height: 1.25; }
+    #para_Report h2 { font-size: 22px; }
+    #para_Report h3 { font-size: 19px; }
+
+    #para_Report ul,
+    #para_Report ol {
+        padding-left: 22px;
+    }
+    #para_Report table,
+    #para_Report pre {
+        display: block;
+        overflow-x: auto;
+        max-width: 100%;
+    }
+
+    #para_Report img {
+        max-width: 100%;
+        height: auto;
+    }
+}
