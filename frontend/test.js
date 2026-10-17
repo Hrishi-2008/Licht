@@ -1,3 +1,5 @@
+const API_BASE = "https://licht.onrender.com";
+
 const section = document.getElementById("ReportSection");
 const topicInput = document.getElementById("topic");
 let currentSource = null;
@@ -27,7 +29,7 @@ function generateReport() {
     status.style.display = "flex";
 
     const es = new EventSource(
-        `http://127.0.0.1:8000/getReport?topic=${encodeURIComponent(topic)}`
+        `${API_BASE}/getReport?topic=${encodeURIComponent(topic)}`
     );
     currentSource = es;
 
