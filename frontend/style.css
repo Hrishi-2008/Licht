@@ -62,9 +62,25 @@ body {
     font-family: "Montserrat", sans-serif;
     font-weight: 800;
     font-size: 64px;
-    letter-spacing: 2px;
-    line-height: 1;
-    color: #F4E235;
+    letter-spacing: 3px;
+    line-height: 1.1;
+
+    /* metallic gold gradient, light at the top and copper at the bottom, like the logo */
+    background: linear-gradient(
+        180deg,
+        #FBE6A2 0%,
+        #EBB95A 35%,
+        #C98A3C 70%,
+        #A8681F 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+
+    /* soft warm glow, like the light in the emblem */
+    filter: drop-shadow(0 2px 6px rgba(201, 138, 60, 0.45));
+
     transition: font-size .6s ease;
 }
 
@@ -76,7 +92,7 @@ body {
     font-weight: 600;
     font-size: 15px;
     letter-spacing: 1px;
-    color: #153A4B;
+    color: #8A5A24;                 /* bronze, matches the gradient */
     transition: opacity .3s ease, max-height .6s ease, margin .6s ease;
 }
 
