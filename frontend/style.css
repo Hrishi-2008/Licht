@@ -242,6 +242,26 @@ body {
     justify-content: center;
 }
 
+#btnDownload {
+    display: none;                  /* shown by JS once the report is ready */
+    margin: 0 auto 16px;
+    padding: 12px 28px;
+    border: none;
+    border-radius: 24px;
+    background: green;
+    color: white;
+    font-family: "Montserrat", sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+#btnDownload:hover {
+    background: red;
+}
+
+
 #para_Report {
     width: 1300px;
     max-width: 90vw;
@@ -348,4 +368,16 @@ body {
         max-width: 100%;
         height: auto;
     }
+}
+
+/* PDF export layout: must stay at the end of the file */
+#para_Report.pdf-mode:not(:empty) {
+    width: 800px;
+    max-width: none;
+    margin: 0;
+    padding: 20px;
+    border-radius: 0;
+    box-shadow: none;
+    font-size: 14px;
+    line-height: 1.6;
 }
