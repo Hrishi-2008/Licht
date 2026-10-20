@@ -5,7 +5,7 @@ from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
 from langchain_mistralai import ChatMistralAI
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Literal
 from typing import Annotated
 from langgraph.graph.message import add_messages
@@ -14,6 +14,9 @@ from langgraph.prebuilt import ToolNode
 from langchain_tavily import TavilySearch
 from langchain_core.messages import SystemMessage
 from langchain_core.messages import HumanMessage
+from langchain_core.messages import ToolMessage
+
+from datetime import date
 
 
 class ReviewState(BaseModel):
@@ -21,13 +24,29 @@ class ReviewState(BaseModel):
     reason : str
     suggestions : str
 
+MAX_VERIFY_ATTEMPTS = 3
+
 class ResearchState(TypedDict):
     research : str
     messages : Annotated[list, add_messages]
+    sources : list[str]
+    verified_status : str
+    attempts : int
+
+class ResearchOutput(BaseModel):
+    research: str = Field(description="Summary of the key facts found")
+    sources: list[str] = Field(description="URLs from the search results that support the facts")
+
+
+class VerifierOutput(BaseModel):
+    verified_status: Literal["yes", "no"]
+    reason: str = Field(default="", description="If 'no', briefly say which claims are unsupported")
+
 
 class State(TypedDict):
     topic : str
     research : str
+    sources : list[str]
     report : str
     review : ReviewState | None
     count : int
@@ -57,76 +76,155 @@ def SupervisingRouter(state : State):
         "next" : s
     }
 
-def router(state : State):
+def route(state : State):
     return state["next"]
 
 
-# Research Subgraph
-def researcher(state : State):
+# Research Agent
+searchWeb = TavilySearch(max_results=5)
+tool_node = ToolNode([searchWeb])
+
+llm_with_tools = llm.bind_tools([searchWeb])            # for searching
+extractor_llm = llm.with_structured_output(ResearchOutput)   # for the final answer
+verifier_llm = llm.with_structured_output(VerifierOutput)
+
+today = date.today()
+
+RESEARCH_PROMPT = (
+    f"Today's date is {today:%B %d, %Y}. Your training data is older than this, so do not "
+    "assume any particular year is the current one. "
+    "You are an expert researcher AI. Use the tavily_search tool to gather facts on the topic. "
+    "Match the scope of your research to the topic. If the topic is broad (a subject, field, "
+    "concept, sport, organism, technology), research the whole subject: what it is, its history, "
+    "how it works or its rules, key concepts, notable people or events, and, where relevant, "
+    "its current state. Do NOT add a year to your search queries and do NOT turn the research "
+    "into a news roundup. Only focus on a particular year or period if the topic itself asks for "
+    "it (for example 'latest', 'current', 'this year', or a specific year). "
+    "Run several searches, each covering a different aspect. "
+    "Any fact that can change over time (rankings, current champions, prices, officeholders, "
+    "records, statistics) must be searched for specifically and stated with its date or year "
+    "from the source. Never fill gaps from memory; use only the search results. "
+    "Once you have enough results, write a summary of the key facts organized by aspect, and "
+    "keep the source URLs."
+)
+
+
+def researcherNode(reState: ResearchState):
+    response = llm_with_tools.invoke(
+        [SystemMessage(RESEARCH_PROMPT), *reState["messages"]]
+    )
+
+    # the model wants to search: let the tool node run, then come back here
+    if response.tool_calls:
+        return {"messages": [response]}
+
+    # no more tool calls: turn the written summary into structured output
+    structured = extractor_llm.invoke([
+        SystemMessage("Extract the final research summary and the source URLs from the conversation."),
+        *reState["messages"],
+        response,
+        HumanMessage("Return the final research summary and the list of source URLs used."),
+    ])
+
+    return {
+        "messages": [response],
+        "research": structured.research,
+        "sources": structured.sources,
+    }
+
+
+def CallTool(reState: ResearchState):
+    if reState["messages"][-1].tool_calls:
+        return "tools"
+    return "verify"
+
+
+def Verifier(reState: ResearchState):
+    # the verifier must see the actual search results, not just the URLs
+    evidence = "\n\n".join(
+        str(m.content) for m in reState["messages"] if isinstance(m, ToolMessage)
+    )[:20000]
+
+    result = verifier_llm.invoke([
+        SystemMessage(
+            "You are a strict fact verifier. You get research notes and the raw search results "
+            "they were based on. Answer 'yes' only if every claim in the notes is supported by the "
+            "search results and every listed source appears in them. Otherwise answer 'no' and "
+            "explain briefly in 'reason'."
+        ),
+        HumanMessage(
+            f"Research notes:\n{reState['research']}\n\n"
+            f"Listed sources:\n{reState['sources']}\n\n"
+            f"Search results:\n{evidence}"
+        ),
+    ])
+
+    update = {
+        "verified_status": result.verified_status,
+        "attempts": reState.get("attempts", 0) + 1,
+    }
+
+    # give the researcher feedback so the retry is not a blind repeat
+    if result.verified_status == "no":
+        update["messages"] = [HumanMessage(
+            f"Verification failed: {result.reason}. Search again if needed, and keep only "
+            f"claims that are supported by the search results."
+        )]
+    return update
+
+
+def verRouter(reState: ResearchState):
+    if reState["verified_status"] == "yes":
+        return "done"
+    if reState["attempts"] >= MAX_VERIFY_ATTEMPTS:
+        return "done"              # give up after N tries and return the best effort
+    return "retry"
+
+
+Subgraph = StateGraph(ResearchState)
+
+Subgraph.add_node("researcher", researcherNode)
+Subgraph.add_node("tools", tool_node)
+Subgraph.add_node("verifier", Verifier)
+
+Subgraph.add_edge(START, "researcher")
+Subgraph.add_conditional_edges(
+    "researcher", CallTool,
+    {"tools": "tools", "verify": "verifier"},
+)
+Subgraph.add_edge("tools", "researcher")
+Subgraph.add_conditional_edges(
+    "verifier", verRouter,
+    {"done": END, "retry": "researcher"},
+)
+
+research_app = Subgraph.compile()
+
+
+# ---------- the node used by the main graph ----------
+def researcher(state: State):
     try:
-        searchWeb = TavilySearch(max_results=5)
-        tool_node = ToolNode([searchWeb])
-
-        def researcherNode(reState : ResearchState):
-            llm_with_tools = llm.bind_tools([searchWeb])
-
-            message = [
-                SystemMessage("You are an expert researcher AI. Use the tavily_search tool to gather facts on the topic. Once you have search results, stop searching and write a summary of the key facts."),
-                *reState["messages"]
-            ]
-            response = llm_with_tools.invoke(message)
-
-            if(response.tool_calls):
-                return {
-                    "messages" : [response]
-                }
-        
-            return {
-                "messages" : [response],
-                "research" : response.content
-            }
-
-        def CallTool(reState : ResearchState):
-            if(reState["messages"][-1].tool_calls):
-                return "tools"
-            return "end"
-
-        Subgraph = StateGraph(ResearchState)
-
-        Subgraph.add_node("researcher",researcherNode)
-        Subgraph.add_node("tool_node",tool_node)
-
-        Subgraph.add_edge(START,"researcher")
-        Subgraph.add_conditional_edges(
-            "researcher",
-            CallTool,
-            {
-                "tools" : "tool_node",
-                "end" : END
-            }
-        )
-        Subgraph.add_edge("tool_node","researcher")
-
-        research_app = Subgraph.compile()
-
         result = research_app.invoke(
             {
-                "messages" : [
-                    HumanMessage(content=f"Topic is {state['topic']}")
-                ],
-                "research" : ""
+                "messages": [HumanMessage(content=f"Topic is {state['topic']}")],
+                "research": "",
+                "sources": [],
+                "verified_status": "",
+                "attempts": 0,
             },
-            config={"recursion_limit" : 30}
+            config={"recursion_limit": 40},
         )
 
         return {
-            "research" : result["research"],
-            "error" : None
+            "research": result["research"],
+            "sources": result["sources"],
+            "error": None,
         }
     except Exception as e:
         return {
-            "research" : "",
-            "error" : f"An error has occured in researcher node =>\nError : {e}"
+            "research": "",
+            "sources": [],
+            "error": f"An error has occurred in researcher node =>\nError : {e}",
         }
 
 
@@ -201,7 +299,7 @@ graph.add_node("error_handler",error_handler)
 graph.add_edge(START,"SupervisingRouter")
 graph.add_conditional_edges(
     "SupervisingRouter",
-    router,
+    route,
     {
         "researcher" : "researcher",
         "writer" : "writer",
@@ -244,7 +342,7 @@ def get_report_stream(topic: str):
             for chunk in app.stream(
                 {
                     "topic": topic, "count": 0, "research": "", "report": "",
-                    "review": None, "next": "", "error": None
+                    "review": None, "next": "", "error": None, "sources" : []
                 },
                 config={"recursion_limit": 30},
                 stream_mode="updates",
