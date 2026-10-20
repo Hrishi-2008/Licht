@@ -24,7 +24,7 @@ class ReviewState(BaseModel):
     reason : str
     suggestions : str
 
-MAX_VERIFY_ATTEMPTS = 3
+MAX_VERIFY_ATTEMPTS = 1
 
 class ResearchState(TypedDict):
     research : str
