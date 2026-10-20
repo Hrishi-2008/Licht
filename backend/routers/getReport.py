@@ -24,7 +24,7 @@ class ReviewState(BaseModel):
     reason : str
     suggestions : str
 
-MAX_VERIFY_ATTEMPTS = 1
+MAX_VERIFY_ATTEMPTS = 2
 
 class ResearchState(TypedDict):
     research : str
@@ -49,8 +49,8 @@ class State(TypedDict):
     sources : list[str]
     report : str
     review : ReviewState | None
-    count : int
     next : str
+    verified_status : str
     error : str | None
 
 llm = ChatMistralAI(
@@ -65,11 +65,7 @@ def SupervisingRouter(state : State):
     elif(state["research"]==""):
         s = "researcher"
     elif(state["report"]==""):
-        s = "writer"
-    elif(state["review"] is None):
-        s = "reviewer"
-    elif(state["review"].decision=="bad" and state["count"]<3):
-        s = "writer"
+        s = "reportGen"
     else: 
         s = "end"
     return {
@@ -133,24 +129,29 @@ def researcherNode(reState: ResearchState):
     }
 
 
+
 def CallTool(reState: ResearchState):
-    if reState["messages"][-1].tool_calls:
+    if reState["messages"] and reState["messages"][-1].tool_calls:
         return "tools"
     return "verify"
 
 
+
 def Verifier(reState: ResearchState):
     # the verifier must see the actual search results, not just the URLs
+    
     evidence = "\n\n".join(
-        str(m.content) for m in reState["messages"] if isinstance(m, ToolMessage)
-    )[:20000]
+        str(m.content)[:12000] for m in reState["messages"] if isinstance(m, ToolMessage)
+    )
 
     result = verifier_llm.invoke([
         SystemMessage(
-            "You are a strict fact verifier. You get research notes and the raw search results "
-            "they were based on. Answer 'yes' only if every claim in the notes is supported by the "
-            "search results and every listed source appears in them. Otherwise answer 'no' and "
-            "explain briefly in 'reason'."
+            "You verify research notes against raw search results. Answer 'no' only if a "
+            "substantive claim (a name, number, date, ranking, or specific factual statement) is "
+            "contradicted by the search results or has no basis in them. Accept reasonable "
+            "paraphrasing and summarization. Do not fail the notes for minor wording differences, "
+            "or because a listed source URL is missing from the results unless the claim depends on it. "
+            "If you answer 'no', quote the specific unsupported claim in 'reason'."
         ),
         HumanMessage(
             f"Research notes:\n{reState['research']}\n\n"
@@ -167,8 +168,9 @@ def Verifier(reState: ResearchState):
     # give the researcher feedback so the retry is not a blind repeat
     if result.verified_status == "no":
         update["messages"] = [HumanMessage(
-            f"Verification failed: {result.reason}. Search again if needed, and keep only "
-            f"claims that are supported by the search results."
+            f"Verification failed. Unsupported claims: {result.reason}\n"
+            "Run NEW searches specifically for these claims. Remove any claim you cannot "
+            "find in the search results."
         )]
     return update
 
@@ -202,98 +204,158 @@ research_app = Subgraph.compile()
 
 
 # ---------- the node used by the main graph ----------
+
 def researcher(state: State):
     try:
         result = research_app.invoke(
             {
-                "messages": [HumanMessage(content=f"Topic is {state['topic']}")],
+                "messages": [
+                    HumanMessage(
+                        content=f"Topic is {state['topic']}"
+                    )
+                ],
                 "research": "",
                 "sources": [],
-                "verified_status": "",
+                "verified_status": "pending",
                 "attempts": 0,
             },
             config={"recursion_limit": 40},
         )
 
+        status = result["verified_status"]
+
+        if not result["research"].strip():
+            raise ValueError("Researcher returned empty research.")
+        
+        if not result["sources"]:
+            raise ValueError(
+                "Researcher returned no source URLs."
+            )
+
+        research = result["research"]
+        if status != "yes":
+                research = "NOTE: This research could not be fully verified.\n\n" + research
+
         return {
-            "research": result["research"],
+            "research": research,
             "sources": result["sources"],
+            "verified_status": status,
             "error": None,
         }
+
     except Exception as e:
         return {
             "research": "",
             "sources": [],
-            "error": f"An error has occurred in researcher node =>\nError : {e}",
+            "verified_status": "no",
+            "error": f"Research failed: {e}",
         }
 
 
-# Writer Node
-def writer(state : State):
+
+# Combining writer and reviewer into a subgraph.
+class repGenState(TypedDict):
+    topic : str
+    research : str
+    report : str
+    review : ReviewState | None
+    count : int
+    error : str | None
+
+
+def writer(repstate: repGenState):
     try:
-        if(state["review"] is None):
+        if repstate["review"] is None:
             messages = [
                 SystemMessage("You are an excellent report writer that can analyze the research facts given and write a perfect report."),
-                HumanMessage(f"Here is the research : {state['research']}, write a good report based on the research.")
+                HumanMessage(f"Here is the topic : {repstate['topic']}, and research : {repstate['research']}, write a good report based on the research.")
             ]
         else:
             messages = [
                 SystemMessage("You are an excellent report writer that can understand the reason for rejection of previous report and suggestions where the previous report can be improved."),
                 HumanMessage(f"""
-                    previous report : {state['report']},
-                    reason of rejection : {state['review'].reason},
-                    suggestions of improvement : {state['review'].suggestions},
+                    research : {repstate['research']},
+                    previous report : {repstate['report']},
+                    reason of rejection : {repstate['review'].reason},
+                    suggestions of improvement : {repstate['review'].suggestions},
                     From these, improve the previous report.
                 """)
             ]
-
         response = llm.invoke(messages)
-
-        return {
-            "report" : response.content,
-            "review" : None,
-            "error" : None
-        }
+        if not response.content or not response.content.strip():
+            raise ValueError("Writer returned an empty report.")
+        return {"report": response.content, "review": None, "error": None}
     except Exception as e:
-        return {
-            "report" : "",
-            "error" : f"An error has occured in writer node =>\nError : {e}"
-        }
+        return {"report": "", "error": f"An error has occured in writer node =>\nError : {e}"}
 
 
-# Review Node
-def reviewer(state : State):
-    try :
-        llm_with_structured_output = llm.with_structured_output(ReviewState)
-        messages = [
-            SystemMessage("You are a brutally honest critique that can analyze a report and review if it good or bad, and also if the report is bad, give reason for it and the suggestions where the report can be improved."),
-            HumanMessage(f"Here is the report : {state['report']}, I want your brutally honest opinion and also reasons and suggestions if the report is bad.")
-        ]
+def writer_router(repstate: repGenState):
+    return "end" if repstate.get("error") else "reviewer"
 
-        response = llm_with_structured_output.invoke(messages)
 
-        return {
-            "review" : response,
-            "count" : state["count"] + 1,
-            "error" : None
-        }
-    except Exception as e:
-        return {
-            "review" : None,
-            "error" : f"An error has occured in reviewer node =>\nError : {e}"
-        }
+def reviewer(repstate: repGenState):
+    try:
+        reviewer_llm = llm.with_structured_output(ReviewState)
+        response = reviewer_llm.invoke([
+            SystemMessage("You are a brutally honest critic. Review the report against the research it was based on. Flag any claim that is not supported by the research, and give reasons and suggestions if the report is bad."),
+            HumanMessage(f"Research:\n{repstate['research']}\n\nReport:\n{repstate['report']}")
+        ])
+        return {"review": response, "count": repstate["count"] + 1}
+    except Exception:
+        # non-fatal: keep the report we already have
+        return {"review": None, "count": repstate["count"] + 1}
 
+
+def decider(repstate: repGenState):
+    review = repstate.get("review")
+    if review is None:
+        return "end"
+    if review.decision == "bad" and repstate["count"] < 3:
+        return "writer"
+    return "end"
+
+
+G = StateGraph(repGenState)
+G.add_node("writer", writer)
+G.add_node("reviewer", reviewer)
+G.add_edge(START, "writer")
+G.add_conditional_edges("writer", writer_router, {"reviewer": "reviewer", "end": END})
+G.add_conditional_edges("reviewer", decider, {"writer": "writer", "end": END})
+report_app = G.compile()
+
+
+def reportGen(state: State):
+    result = report_app.invoke({
+        "topic": state["topic"],
+        "research": state["research"],
+        "report": "",
+        "review": None,
+        "count": 0,
+        "error": None,
+    })
+
+    report = result.get("report", "")
+    if report and state["sources"]:
+        report += "\n\n## Sources\n" + "\n".join(f"- {u}" for u in state["sources"])
+
+    return {
+        "report": report,
+        "review": result.get("review"),
+        "error": result.get("error"),
+    }
+
+
+# Error Handler
 def error_handler(state : State):
     print(f"The following error occured :\n{state['error']}")
-    return {}
+    return {"error" : state["error"]}
 
 
 graph = StateGraph(State)
 
 graph.add_node("SupervisingRouter",SupervisingRouter)
 graph.add_node("researcher",researcher)
-graph.add_node("writer",writer)
-graph.add_node("reviewer",reviewer)
+graph.add_node("reportGen",reportGen)
 graph.add_node("error_handler",error_handler)
 
 graph.add_edge(START,"SupervisingRouter")
@@ -302,19 +364,16 @@ graph.add_conditional_edges(
     route,
     {
         "researcher" : "researcher",
-        "writer" : "writer",
-        "reviewer" : "reviewer",
+        "reportGen" : "reportGen",
         "error_handler" : "error_handler",
         "end" : END
     }
 )
 graph.add_edge("researcher","SupervisingRouter")
-graph.add_edge("writer","SupervisingRouter")
-graph.add_edge("reviewer","SupervisingRouter")
+graph.add_edge("reportGen","SupervisingRouter")
 graph.add_edge("error_handler",END)
 
 app = graph.compile()
-
 
 # FastAPI
 from fastapi import APIRouter

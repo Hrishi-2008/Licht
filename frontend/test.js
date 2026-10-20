@@ -1,5 +1,6 @@
 const API_BASE = "https://licht.onrender.com";
 
+
 const section = document.getElementById("ReportSection");
 const topicInput = document.getElementById("topic");
 let currentSource = null;
