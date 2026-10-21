@@ -7,3 +7,4 @@ langchain-core
 langchain-mistralai
 langchain-tavily
 langgraph-checkpoint-sqlite
+langsmith

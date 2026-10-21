@@ -1,5 +1,6 @@
 const API_BASE = "https://licht.onrender.com";
 
+
 const section = document.getElementById("ReportSection");
 const topicInput = document.getElementById("topic");
 let currentSource = null;
@@ -48,6 +49,7 @@ function generateReport() {
             reportEl.innerHTML = DOMPurify.sanitize(marked.parse(data.report));
             status.style.display = "none";
             btnDownload.style.display = "block";      // show the download button
+            
             es.close();
         } else if (data.type === "error") {
             statusText.textContent = "Something went wrong: " + data.message;

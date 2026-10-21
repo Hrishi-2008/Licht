@@ -290,16 +290,29 @@ class repGenState(TypedDict):
 
 def writer(repstate: repGenState, config: RunnableConfig):
     try:
+
+        WRITER_RULES = (
+            "You are an excellent report writer. Your output is inserted directly into a document, "
+            "so return ONLY the report in markdown. "
+            "Start with exactly one title line in the form '# <Topic> – A <Descriptive> Analysis' "
+            "(short and attractive, for example '# Gender Discrimination – A Data-Driven Analysis'), "
+            "then go straight into the first section. "
+            "Do NOT write any introduction or commentary before the title, any subtitle or italic line "
+            "under it, or any author, date or version line. Never mention revisions, feedback, "
+            "rejections or improvements, and never address the reader or the user. "
+            "Do not use 'Final Research Summary' or 'Research Summary' as a title."
+        )
+
         if repstate["review"] is None:
             emit(config, "Generating the report...")
             messages = [
-                SystemMessage("You are an excellent report writer that can analyze the research facts given and write a perfect report."),
+                SystemMessage(WRITER_RULES),
                 HumanMessage(f"Here is the topic : {repstate['topic']}, and research : {repstate['research']}, write a good report based on the research.")
             ]
         else:
             emit(config, "Refining the report...")
             messages = [
-                SystemMessage("You are an excellent report writer that can understand the reason for rejection of previous report and suggestions where the previous report can be improved."),
+                SystemMessage(WRITER_RULES),
                 HumanMessage(f"""
                     research : {repstate['research']},
                     previous report : {repstate['report']},
