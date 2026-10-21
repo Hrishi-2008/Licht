@@ -465,3 +465,82 @@ body {
     opacity: 1;
     transition: opacity .4s ease .6s, max-height .4s ease .6s;   /* waits for the header move */
 }
+
+/* Introductory text on the landing screen */
+#introText {
+    text-align: center;
+    margin: 0 0 8px;
+    position: relative;
+    z-index: 1;
+    font-family: "Montserrat", sans-serif;
+}
+
+#introText h2 {
+    margin: 0 0 10px;
+    font-size: 25px;
+    font-weight: 800;
+    color: #153A4B;
+    line-height: 1.4;
+}
+
+#introText p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #6b7c85;
+}
+
+/* Workflow tagline below the search bar */
+#workflowText {
+    margin: 8px 0 0;
+    text-align: center;
+    font-family: "Montserrat", sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: #153A4B;
+}
+
+#workflowText span {
+    color: #C98A3C;
+    padding: 0 6px;
+}
+
+/* Fade out the added text during the transition */
+#ReportSection.has-report #introText,
+#ReportSection.has-report #workflowText {
+    display: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 700px) {
+    #introText {
+        padding: 0 8px;
+        margin-bottom: 12px;
+    }
+
+    #introText h2 {
+        font-size: 20px;
+    }
+
+    #introText p {
+        font-size: 13px;
+    }
+
+    #workflowText {
+        font-size: 11px;
+        letter-spacing: 0.3px;
+    }
+
+    #workflowText span {
+        padding: 0 2px;
+    }
+}
+
+#brandText {
+    transform: translateX(-25px);
+}
+
+#logo {
+    transform: translateX(-15px);
+}
