@@ -19,6 +19,24 @@ from langchain_core.messages import ToolMessage
 from datetime import date
 
 
+# For Displaying messages at each Node
+from langchain_core.runnables import RunnableConfig
+
+def emit(config, message: str):
+    """Send a status message to the endpoint, if one is listening."""
+    fn = ((config or {}).get("configurable") or {}).get("emit")
+    if fn:
+        fn(message)
+    else:
+        print(f"[status] {message}")       # terminal runs just print it
+
+def sub_config(config, limit: int) -> dict:
+    """Pass the emit function down into a subgraph."""
+    fn = ((config or {}).get("configurable") or {}).get("emit")
+    return {"recursion_limit": limit, "configurable": {"emit": fn}}
+
+
+# LangGraph Architecture Starts
 class ReviewState(BaseModel):
     decision : Literal["good","bad"]
     reason : str
@@ -105,7 +123,14 @@ RESEARCH_PROMPT = (
 )
 
 
-def researcherNode(reState: ResearchState):
+def researcherNode(reState: ResearchState, config: RunnableConfig):
+
+    if not isinstance(reState["messages"][-1], ToolMessage):
+        if reState.get("attempts", 0) == 0:
+            emit(config, "Scraping the web for facts...")
+        else:
+            emit(config, "Scraping the web for more facts...")
+
     response = llm_with_tools.invoke(
         [SystemMessage(RESEARCH_PROMPT), *reState["messages"]]
     )
@@ -137,9 +162,9 @@ def CallTool(reState: ResearchState):
 
 
 
-def Verifier(reState: ResearchState):
+def Verifier(reState: ResearchState, config: RunnableConfig):
     # the verifier must see the actual search results, not just the URLs
-    
+    emit(config, "Verifying the scraped facts...")
     evidence = "\n\n".join(
         str(m.content)[:12000] for m in reState["messages"] if isinstance(m, ToolMessage)
     )
@@ -205,7 +230,7 @@ research_app = Subgraph.compile()
 
 # ---------- the node used by the main graph ----------
 
-def researcher(state: State):
+def researcher(state: State, config: RunnableConfig):
     try:
         result = research_app.invoke(
             {
@@ -219,7 +244,7 @@ def researcher(state: State):
                 "verified_status": "pending",
                 "attempts": 0,
             },
-            config={"recursion_limit": 40},
+            config=sub_config(config,40),
         )
 
         status = result["verified_status"]
@@ -263,14 +288,16 @@ class repGenState(TypedDict):
     error : str | None
 
 
-def writer(repstate: repGenState):
+def writer(repstate: repGenState, config: RunnableConfig):
     try:
         if repstate["review"] is None:
+            emit(config, "Generating the report...")
             messages = [
                 SystemMessage("You are an excellent report writer that can analyze the research facts given and write a perfect report."),
                 HumanMessage(f"Here is the topic : {repstate['topic']}, and research : {repstate['research']}, write a good report based on the research.")
             ]
         else:
+            emit(config, "Refining the report...")
             messages = [
                 SystemMessage("You are an excellent report writer that can understand the reason for rejection of previous report and suggestions where the previous report can be improved."),
                 HumanMessage(f"""
@@ -293,8 +320,9 @@ def writer_router(repstate: repGenState):
     return "end" if repstate.get("error") else "reviewer"
 
 
-def reviewer(repstate: repGenState):
+def reviewer(repstate: repGenState, config: RunnableConfig):
     try:
+        emit(config, "Reviewing the report and verifying the evidence...")
         reviewer_llm = llm.with_structured_output(ReviewState)
         response = reviewer_llm.invoke([
             SystemMessage("You are a brutally honest critic. Review the report against the research it was based on. Flag any claim that is not supported by the research, and give reasons and suggestions if the report is bad."),
@@ -324,7 +352,7 @@ G.add_conditional_edges("reviewer", decider, {"writer": "writer", "end": END})
 report_app = G.compile()
 
 
-def reportGen(state: State):
+def reportGen(state: State, config: RunnableConfig):
     result = report_app.invoke({
         "topic": state["topic"],
         "research": state["research"],
@@ -332,7 +360,8 @@ def reportGen(state: State):
         "review": None,
         "count": 0,
         "error": None,
-    })
+    },
+    config=sub_config(config, 25))
 
     report = result.get("report", "")
     if report and state["sources"]:
@@ -384,41 +413,49 @@ router = APIRouter()
 import json
 from fastapi.responses import StreamingResponse
 
-STEP_MESSAGES = {
-    "researcher": "Scraping the web for facts...",
-    "writer": "Generating the report...",
-    "reviewer": "Verifying the evidence...",
-}
+import json, queue, threading
+from fastapi.responses import StreamingResponse
 
 def sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 @router.get("/getReport")
 def get_report_stream(topic: str):
-    def event_stream():
-        report = ""
+    q: queue.Queue = queue.Queue()
+
+    def emit_status(message: str):
+        q.put({"type": "status", "message": message})
+
+    def worker():
         try:
-            for chunk in app.stream(
+            result = app.invoke(
                 {
-                    "topic": topic, "count": 0, "research": "", "report": "",
-                    "review": None, "next": "", "error": None, "sources" : []
+                    "topic": topic, "research": "", "report": "", "review": None,
+                    "next": "", "verified_status": "", "error": None, "sources": [],
                 },
-                config={"recursion_limit": 30},
-                stream_mode="updates",
-            ):
-                for node, update in chunk.items():
-                    if not update:
-                        continue
-                    if node == "SupervisingRouter" and update.get("next") in STEP_MESSAGES:
-                        yield sse({"type": "status", "message": STEP_MESSAGES[update["next"]]})
-                    if update.get("report"):
-                        report = update["report"]
-                    if update.get("error"):
-                        yield sse({"type": "error", "message": update["error"]})
-                        return
-            yield sse({"type": "report", "report": report})
+                config={"recursion_limit": 30, "configurable": {"emit": emit_status}},
+            )
+            if result.get("error"):
+                q.put({"type": "error", "message": result["error"]})
+            else:
+                q.put({"type": "report", "report": result["report"]})
         except Exception as e:
-            yield sse({"type": "error", "message": str(e)})
+            q.put({"type": "error", "message": str(e)})
+        finally:
+            q.put(None)                     # tells the stream to finish
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def event_stream():
+        while True:
+            try:
+                item = q.get(timeout=15)
+            except queue.Empty:
+                yield ": keepalive\n\n"     # ignored by the browser, keeps the connection open
+                continue
+            if item is None:
+                break
+            yield sse(item)
 
     return StreamingResponse(
         event_stream(),
