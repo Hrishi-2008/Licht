@@ -3,7 +3,9 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
+
 from langchain_mistralai import ChatMistralAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from pydantic import BaseModel, Field
 from typing import Literal
@@ -71,8 +73,12 @@ class State(TypedDict):
     verified_status : str
     error : str | None
 
-llm = ChatMistralAI(
-    model = "ministral-14b-2512",
+# llm = ChatMistralAI(
+#     model = "mistral-small-2603",
+#     temperature = 0 
+# )
+llm = ChatGoogleGenerativeAI(
+    model = "gemini-3.8-flash",
     temperature = 0 
 )
 
