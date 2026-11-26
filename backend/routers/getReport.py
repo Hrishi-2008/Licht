@@ -74,11 +74,11 @@ class State(TypedDict):
     error : str | None
 
 # llm = ChatMistralAI(
-#     model = "mistral-small-2603",
+#     model = "ministral-14b-2512",
 #     temperature = 0 
 # )
 llm = ChatGoogleGenerativeAI(
-    model = "gemini-3.8-flash",
+    model = "gemini-3.1-flash-lite",
     temperature = 0 
 )
 
@@ -110,23 +110,62 @@ verifier_llm = llm.with_structured_output(VerifierOutput)
 
 today = date.today()
 
+
 RESEARCH_PROMPT = (
-    f"Today's date is {today:%B %d, %Y}. Your training data is older than this, so do not "
-    "assume any particular year is the current one. "
-    "You are an expert researcher AI. Use the tavily_search tool to gather facts on the topic. "
-    "Match the scope of your research to the topic. If the topic is broad (a subject, field, "
-    "concept, sport, organism, technology), research the whole subject: what it is, its history, "
-    "how it works or its rules, key concepts, notable people or events, and, where relevant, "
-    "its current state. Do NOT add a year to your search queries and do NOT turn the research "
-    "into a news roundup. Only focus on a particular year or period if the topic itself asks for "
-    "it (for example 'latest', 'current', 'this year', or a specific year). "
-    "Run several searches, each covering a different aspect. "
-    "Any fact that can change over time (rankings, current champions, prices, officeholders, "
-    "records, statistics) must be searched for specifically and stated with its date or year "
-    "from the source. Never fill gaps from memory; use only the search results. "
-    "Once you have enough results, write a summary of the key facts organized by aspect, and "
-    "keep the source URLs."
+    f"Today's date is {today:%B %d, %Y}. "
+    "You are a senior academic research analyst working for Licht, "
+    "an evidence-based report generation system.\n\n"
+
+    "YOUR OBJECTIVE:\n"
+    "Conduct comprehensive, multi-dimensional research on the given topic. "
+    "Do not produce a short overview or a superficial summary. "
+    "Collect sufficient factual material to support a detailed academic report.\n\n"
+
+    "RESEARCH PROCESS:\n"
+    "1. Break the topic into 6-10 meaningful research dimensions.\n"
+    "2. Conduct separate web searches for different dimensions. "
+    "Do not rely on one search query or one website.\n"
+    "3. Investigate definitions, fundamental principles, history, "
+    "methodologies, technical mechanisms, practical applications, "
+    "recent developments, limitations, challenges and future directions "
+    "where relevant to the topic.\n"
+    "4. Search for technical details, named methods, algorithms, "
+    "experimental findings, quantitative measurements and real-world examples.\n"
+    "5. Search for comparisons between competing approaches where relevant.\n"
+    "6. Prefer peer-reviewed research, academic publications, "
+    "government sources, institutional research and authoritative documentation.\n"
+    "7. Use secondary sources only when primary evidence is unavailable "
+    "or when they provide useful context.\n\n"
+
+    "EVIDENCE REQUIREMENTS:\n"
+    "- Every important factual claim must have supporting evidence.\n"
+    "- Preserve exact names, dates, numerical values and technical terminology.\n"
+    "- Record the source URL associated with each important finding.\n"
+    "- Identify disagreements between sources instead of silently choosing one.\n"
+    "- Distinguish established findings from experimental results and predictions.\n"
+    "- Never invent statistics, studies, quotations or citations.\n"
+    "- Never treat search-result snippets as sufficient evidence when more "
+    "detailed source content is available.\n\n"
+
+    "SEARCH BEHAVIOUR:\n"
+    "Use tavily_search repeatedly for different aspects of the topic. "
+    "Avoid duplicate searches. Continue researching until the major dimensions "
+    "have sufficient evidence. Do not stop after finding a few generic articles.\n\n"
+
+    "FINAL RESEARCH OUTPUT:\n"
+    "Produce detailed, organized research notes, not a final report. "
+    "For each research dimension, include:\n"
+    "- Key findings\n"
+    "- Technical explanations\n"
+    "- Important examples and applications\n"
+    "- Relevant numerical evidence, if available\n"
+    "- Supporting source URLs\n"
+    "- Uncertainties or research gaps\n\n"
+
+    "Your research must provide enough substance for a comprehensive, "
+    "well-structured report. Never sacrifice research depth merely to finish quickly."
 )
+
 
 
 def researcherNode(reState: ResearchState, config: RunnableConfig):
@@ -328,9 +367,17 @@ def writer(repstate: repGenState, config: RunnableConfig):
                 """)
             ]
         response = llm.invoke(messages)
-        if not response.content or not response.content.strip():
+
+        content = response.content
+
+        if isinstance(content, list):
+            content = content[0]["text"]
+
+        if not content or not content.strip():
             raise ValueError("Writer returned an empty report.")
-        return {"report": response.content, "review": None, "error": None}
+
+        return {"report": content, "review": None, "error": None}
+    
     except Exception as e:
         return {"report": "", "error": f"An error has occured in writer node =>\nError : {e}"}
 
@@ -344,7 +391,38 @@ def reviewer(repstate: repGenState, config: RunnableConfig):
         emit(config, "Reviewing the report and verifying the evidence...")
         reviewer_llm = llm.with_structured_output(ReviewState)
         response = reviewer_llm.invoke([
-            SystemMessage("You are a brutally honest critic. Review the report against the research it was based on. Flag any claim that is not supported by the research, and give reasons and suggestions if the report is bad."),
+            SystemMessage(
+                "You are Licht's independent academic report evaluator.\n\n"
+
+                "Evaluate the generated report against the original research dossier. "
+                "Your job is to identify weaknesses, not to praise the writer.\n\n"
+
+                "EVALUATION CRITERIA:\n"
+                "1. Research coverage: Are the important dimensions of the topic covered?\n"
+                "2. Technical depth: Are important concepts adequately explained?\n"
+                "3. Evidence quality: Are factual claims supported by the research?\n"
+                "4. Accuracy: Are names, numbers, dates and technical details correct?\n"
+                "5. Analytical depth: Does the report compare approaches and discuss "
+                "their implications?\n"
+                "6. Completeness: Are major challenges, limitations and applications covered?\n"
+                "7. Organization: Is the report logically structured and coherent?\n"
+                "8. Redundancy: Does the report contain repetitive or meaningless content?\n\n"
+
+                "REJECTION CONDITIONS:\n"
+                "Return decision='bad' when the report has substantial missing sections, "
+                "superficial explanations, unsupported factual claims, serious inaccuracies "
+                "or inadequate coverage of the research.\n\n"
+
+                "Return decision='good' only when the report is sufficiently detailed, "
+                "accurate, coherent and supported by the supplied research.\n\n"
+
+                "When rejecting, explain the specific weaknesses and provide actionable "
+                "suggestions for improvement. Prioritize missing technical depth, "
+                "missing evidence and incomplete topic coverage.\n\n"
+
+                "Do not reject a report merely because it does not contain unnecessary "
+                "sections. Evaluate relevance to the actual topic."
+            ),
             HumanMessage(f"Research:\n{repstate['research']}\n\nReport:\n{repstate['report']}")
         ])
         return {"review": response, "count": repstate["count"] + 1}
