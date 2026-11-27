@@ -20,9 +20,16 @@ from langchain_core.messages import ToolMessage
 
 from datetime import date
 
+# Prompts
+from routers.prompts import RESEARCH_PROMPT
+from routers.prompts import Verifier_Prompt
+from routers.prompts import WRITER_RULES
+from routers.prompts import Evaluator_Prompt
+
 
 # For Displaying messages at each Node
 from langchain_core.runnables import RunnableConfig
+
 
 def emit(config, message: str):
     """Send a status message to the endpoint, if one is listening."""
@@ -111,63 +118,6 @@ verifier_llm = llm.with_structured_output(VerifierOutput)
 today = date.today()
 
 
-RESEARCH_PROMPT = (
-    f"Today's date is {today:%B %d, %Y}. "
-    "You are a senior academic research analyst working for Licht, "
-    "an evidence-based report generation system.\n\n"
-
-    "YOUR OBJECTIVE:\n"
-    "Conduct comprehensive, multi-dimensional research on the given topic. "
-    "Do not produce a short overview or a superficial summary. "
-    "Collect sufficient factual material to support a detailed academic report.\n\n"
-
-    "RESEARCH PROCESS:\n"
-    "1. Break the topic into 6-10 meaningful research dimensions.\n"
-    "2. Conduct separate web searches for different dimensions. "
-    "Do not rely on one search query or one website.\n"
-    "3. Investigate definitions, fundamental principles, history, "
-    "methodologies, technical mechanisms, practical applications, "
-    "recent developments, limitations, challenges and future directions "
-    "where relevant to the topic.\n"
-    "4. Search for technical details, named methods, algorithms, "
-    "experimental findings, quantitative measurements and real-world examples.\n"
-    "5. Search for comparisons between competing approaches where relevant.\n"
-    "6. Prefer peer-reviewed research, academic publications, "
-    "government sources, institutional research and authoritative documentation.\n"
-    "7. Use secondary sources only when primary evidence is unavailable "
-    "or when they provide useful context.\n\n"
-
-    "EVIDENCE REQUIREMENTS:\n"
-    "- Every important factual claim must have supporting evidence.\n"
-    "- Preserve exact names, dates, numerical values and technical terminology.\n"
-    "- Record the source URL associated with each important finding.\n"
-    "- Identify disagreements between sources instead of silently choosing one.\n"
-    "- Distinguish established findings from experimental results and predictions.\n"
-    "- Never invent statistics, studies, quotations or citations.\n"
-    "- Never treat search-result snippets as sufficient evidence when more "
-    "detailed source content is available.\n\n"
-
-    "SEARCH BEHAVIOUR:\n"
-    "Use tavily_search repeatedly for different aspects of the topic. "
-    "Avoid duplicate searches. Continue researching until the major dimensions "
-    "have sufficient evidence. Do not stop after finding a few generic articles.\n\n"
-
-    "FINAL RESEARCH OUTPUT:\n"
-    "Produce detailed, organized research notes, not a final report. "
-    "For each research dimension, include:\n"
-    "- Key findings\n"
-    "- Technical explanations\n"
-    "- Important examples and applications\n"
-    "- Relevant numerical evidence, if available\n"
-    "- Supporting source URLs\n"
-    "- Uncertainties or research gaps\n\n"
-
-    "Your research must provide enough substance for a comprehensive, "
-    "well-structured report. Never sacrifice research depth merely to finish quickly."
-)
-
-
-
 def researcherNode(reState: ResearchState, config: RunnableConfig):
 
     if not isinstance(reState["messages"][-1], ToolMessage):
@@ -215,14 +165,7 @@ def Verifier(reState: ResearchState, config: RunnableConfig):
     )
 
     result = verifier_llm.invoke([
-        SystemMessage(
-            "You verify research notes against raw search results. Answer 'no' only if a "
-            "substantive claim (a name, number, date, ranking, or specific factual statement) is "
-            "contradicted by the search results or has no basis in them. Accept reasonable "
-            "paraphrasing and summarization. Do not fail the notes for minor wording differences, "
-            "or because a listed source URL is missing from the results unless the claim depends on it. "
-            "If you answer 'no', quote the specific unsupported claim in 'reason'."
-        ),
+        SystemMessage(Verifier_Prompt),
         HumanMessage(
             f"Research notes:\n{reState['research']}\n\n"
             f"Listed sources:\n{reState['sources']}\n\n"
@@ -336,18 +279,6 @@ class repGenState(TypedDict):
 def writer(repstate: repGenState, config: RunnableConfig):
     try:
 
-        WRITER_RULES = (
-            "You are an excellent report writer. Your output is inserted directly into a document, "
-            "so return ONLY the report in markdown. "
-            "Start with exactly one title line in the form '# <Topic> – A <Descriptive> Analysis' "
-            "(short and attractive, for example '# Gender Discrimination – A Data-Driven Analysis'), "
-            "then go straight into the first section. "
-            "Do NOT write any introduction or commentary before the title, any subtitle or italic line "
-            "under it, or any author, date or version line. Never mention revisions, feedback, "
-            "rejections or improvements, and never address the reader or the user. "
-            "Do not use 'Final Research Summary' or 'Research Summary' as a title."
-        )
-
         if repstate["review"] is None:
             emit(config, "Generating the report...")
             messages = [
@@ -390,39 +321,9 @@ def reviewer(repstate: repGenState, config: RunnableConfig):
     try:
         emit(config, "Reviewing the report and verifying the evidence...")
         reviewer_llm = llm.with_structured_output(ReviewState)
+        
         response = reviewer_llm.invoke([
-            SystemMessage(
-                "You are Licht's independent academic report evaluator.\n\n"
-
-                "Evaluate the generated report against the original research dossier. "
-                "Your job is to identify weaknesses, not to praise the writer.\n\n"
-
-                "EVALUATION CRITERIA:\n"
-                "1. Research coverage: Are the important dimensions of the topic covered?\n"
-                "2. Technical depth: Are important concepts adequately explained?\n"
-                "3. Evidence quality: Are factual claims supported by the research?\n"
-                "4. Accuracy: Are names, numbers, dates and technical details correct?\n"
-                "5. Analytical depth: Does the report compare approaches and discuss "
-                "their implications?\n"
-                "6. Completeness: Are major challenges, limitations and applications covered?\n"
-                "7. Organization: Is the report logically structured and coherent?\n"
-                "8. Redundancy: Does the report contain repetitive or meaningless content?\n\n"
-
-                "REJECTION CONDITIONS:\n"
-                "Return decision='bad' when the report has substantial missing sections, "
-                "superficial explanations, unsupported factual claims, serious inaccuracies "
-                "or inadequate coverage of the research.\n\n"
-
-                "Return decision='good' only when the report is sufficiently detailed, "
-                "accurate, coherent and supported by the supplied research.\n\n"
-
-                "When rejecting, explain the specific weaknesses and provide actionable "
-                "suggestions for improvement. Prioritize missing technical depth, "
-                "missing evidence and incomplete topic coverage.\n\n"
-
-                "Do not reject a report merely because it does not contain unnecessary "
-                "sections. Evaluate relevance to the actual topic."
-            ),
+            SystemMessage(Evaluator_Prompt),
             HumanMessage(f"Research:\n{repstate['research']}\n\nReport:\n{repstate['report']}")
         ])
         return {"review": response, "count": repstate["count"] + 1}
